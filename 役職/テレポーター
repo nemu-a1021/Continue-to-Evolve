@@ -1,0 +1,59 @@
+using System.Collections;
+using UnityEngine;
+using Mirror;
+
+public class Teleporter : NetworkBehaviour
+{
+    [SyncVar]
+    public int teleportsLeft = 3; // テレポートできる回数
+    public float teleportCooldown = 5f; // テレポートのクール
+
+    private bool isTeleporting = false;
+
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+    }
+
+    [Command]
+    public void CmdTeleportPlayer(GameObject playerToTeleport)
+    {
+        if (teleportsLeft > 0 && !isTeleporting)
+        {
+            StartCoroutine(TeleportCoroutine(playerToTeleport));
+        }
+    }
+
+    IEnumerator TeleportCoroutine(GameObject playerToTeleport)
+    {
+        isTeleporting = true;
+        teleportsLeft--;
+        RpcTeleportAnimation(playerToTeleport.transform.position);
+        yield return new WaitForSeconds(1f);
+        Vector3 teleportPosition = GetRandomPosition();
+        playerToTeleport.transform.position = teleportPosition;
+        RpcTeleportAnimation(teleportPosition);
+        yield return new WaitForSeconds(teleportCooldown);
+        isTeleporting = false;
+    }
+
+    [ClientRpc]
+    void RpcTeleportAnimation(Vector3 teleportPosition)
+    {
+        // テレポートエフェクトなどのアニメーションを再生する
+        // この例では位置情報だけを表示するようにしています
+        Debug.Log("Teleporting to: " + teleportPosition);
+    }
+
+    Vector3 GetRandomPosition()
+    {
+        // テレポートする場所をランダムに決定する
+        // 例えば舞台の上空にテレポートしたりすることもできます
+        Vector3 randomPosition = new Vector3(
+            Random.Range(-8f, 8f),
+            Random.Range(-4f, 4f),
+            0f
+        );
+        return randomPosition;
+    }
+}
