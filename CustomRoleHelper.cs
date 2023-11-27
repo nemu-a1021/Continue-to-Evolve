@@ -101,5 +101,19 @@ namespace ContinuetoEvolve
             foreach (var r in roles) Debug.Log($"r: {r}");
             return roles;
         }
+        public static int GetSetting(string s, int add = 0)
+        {
+            for (var i = 0; i < CustomOption.options.Count; i++)
+            {
+                CustomOption option = CustomOption.options[i];
+                if (option.name == s)
+                {
+                    i += add;
+                    option = CustomOption.options[i];
+                    return option.GetSelection();
+                }
+            }
+            return 0;
+        }
     }
 }

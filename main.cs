@@ -180,50 +180,11 @@ namespace ContinuetoEvolve
                 Player.RpcSetCustomRole(Role);
                 Debug.Log($"Player:{Playerid},Role:{Role}");
 
-                //ActiveRoles.RemoveAt(Roleid);
+                ActiveRoles.RemoveAt(Roleid);
                 AllPlayers.Remove(Playerid);
             }
+            Main.NoEndGame = GetSetting("ゲームを終了しない") == 1;
             return true;
-
-            /*if (Main.HostMode)
-            {
-                if (!AmongUsClient.Instance.AmHost) return;
-                Main.PlayerRole.Clear();
-                foreach (var pc in PlayerControl.AllPlayerControls)
-                    Main.PlayerRole.Add(pc.PlayerId, "none");
-                foreach (var role in Main.ModRoleActive)
-                {
-                    if (role.Value)
-                    {
-                        var rand = new System.Random();
-                        var id = rand.Next(0, PlayerControl.AllPlayerControls.Count);
-
-                        foreach (var pc in PlayerControl.AllPlayerControls)
-                        {
-                            if (pc.PlayerId == id)
-                            {
-                                if (Main.PlayerRole[pc.PlayerId] != "none")
-                                    Console.print("key aru! error");
-                                else
-                                {
-                                    Main.PlayerRole[pc.PlayerId] = role.Key;
-                                    pc.RpcSetRole(Main.ModRoleType[role.Key]);
-                                }
-                            }
-                        }
-                    }
-                }
-                foreach (var pc in PlayerControl.AllPlayerControls)
-                    if (Main.PlayerRole[pc.PlayerId] == "none")
-                    {
-                        Main.PlayerRole[pc.PlayerId] = $"{pc.Data.Role.Role}";
-                    }
-                foreach (var n in Main.PlayerRole)
-                    Console.print(n.Key + " = " + n.Value);
-                foreach (var pc in PlayerControl.AllPlayerControls)
-                    RPC.RpcSetNamePrivate(pc, $"<color={Main.RoleColor[Main.PlayerRole[pc.PlayerId]]}>" + Main.PlayerRole[pc.PlayerId] + "\n" + pc.name, seer: pc);
-            }*/
-
         }
     }
     [HarmonyPatch(typeof(GameManager), nameof(GameManager.CheckTaskCompletion))]
@@ -276,12 +237,24 @@ namespace ContinuetoEvolve
                 teamToDisplay = soloTeam;
             }
         }
-        public static void Postfix(IntroCutscene __instance, ref Il2CppSystem.Collections.Generic.List<PlayerControl> teamToDisplay)
+    }
+    [HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.ShowRole))]
+    class SetUpRoleTextPatch
+    {
+        public static void Postfix(IntroCutscene __instance)
         {
             CustomRoles role = Main.PlayerRole[PlayerControl.LocalPlayer.PlayerId];
             _ = ColorUtility.TryParseHtmlString(role.GetRoleColor(), out Color rc);
             __instance.TeamTitle.text = Translator.GetColorString(role);
             __instance.TeamTitle.color = rc;
+        }
+    }
+    [HarmonyPatch(typeof(PingTracker), nameof(PingTracker.Update))]
+    class PingUpdatePatch
+    {
+        static void Postfix(PingTracker __instance)
+        {
+            __instance.text.text += $"\n\r{Main.PluginName} v{Main.PluginVersion}";
         }
     }
     [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
