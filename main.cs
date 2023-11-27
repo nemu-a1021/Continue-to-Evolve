@@ -8,8 +8,12 @@ using System.IO;
 using System.Reflection;
 using Hazel;
 using System.Linq;
+using System;
 
-namespace ContinuetoEolve
+using ContinuetoEvolve.Patches;
+using static ContinuetoEvolve.RoleHelper;
+
+namespace ContinuetoEvolve
 {
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInProcess("Among Us.exe")]
@@ -18,19 +22,18 @@ namespace ContinuetoEolve
         public const string PluginName = "Continue-to-Evolve";
         public const string PluginGuid = "com.nemua.cntinue-to-evolve";//なんか入れてもらて
         public const string PluginVersion = "0.0.1";//バージョン
-        public static Sprite ModStamp;
         public Harmony Harmony { get; } = new Harmony(PluginGuid);
-        public static bool HostMode = true;
         public static bool NoEndGame = true;
-        public static Dictionary<string, bool> ModRoleActive = new();
-        public static Dictionary<string, RoleTypes> ModRoleType = new();
-        public static Dictionary<string, string> RoleColor = new();
-        public static Dictionary<byte, string> PlayerRole = new();
+        public static Dictionary<byte, CustomRoles> PlayerRole = new();
+
+        public static Main Instance;
         public override void Load()
         {
+            Instance = this;
             Log.LogInfo($"{PluginName}Load!");
             Harmony.PatchAll();
             RoleLoad();
+            CustomOptionHolder.LoadOptions();
         }
         [HarmonyPatch(typeof(ModManager), nameof(ModManager.LateUpdate))]
         class ModManagerLateUpdatePatch
@@ -40,40 +43,20 @@ namespace ContinuetoEolve
                 __instance.ShowModStamp();
             }
         }
-        public static void RoleLoad()
-        {
-            ModRoleActive.Clear();
-            ModRoleType.Clear();
-            RoleColor.Clear();
-            RoleColor.Add("Crewmate", "#00ffff");//バニラ役職
-            RoleColor.Add("Engineer", "#00ffff");
-            RoleColor.Add("Scientist", "#00ffff");
-            RoleColor.Add("GuardianAngel", "#00ffff");
-            RoleColor.Add("Impostor", "#ff0000");
-            RoleColor.Add("Shapeshifter", "#ff0000");
-            ModRoleActive.Add("Sheriff", true);
-            ModRoleType.Add("Sheriff", RoleTypes.Impostor);
-            RoleColor.Add("Sheriff", "#f4ff00");
-            ModRoleActive.Add("Bait", true);
-            ModRoleType.Add("Bait", RoleTypes.Crewmate);
-            RoleColor.Add("Bait", "#00ffff");
-
-        }
         [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
         public static class LogoPatch
         {
             public static SpriteRenderer renderer;
-            [HarmonyPriority(Priority.VeryHigh)]
             static void Postfix(MainMenuManager __instance)
             {
                 var cte = new GameObject("Logo-CTE");
                 cte.transform.localPosition = new(0f, 0f, 0f);
                 cte.transform.localScale *= 1.2f;
                 renderer = cte.AddComponent<SpriteRenderer>();
-                renderer.sprite = LoadSprite("ContinuetoEolve.Resources.Logo.png", 300f);
+                renderer.sprite = LoadSprite("continue-to-evolve.Resources.Logo.png", 300f);
 
             }
-            //TOH参考 動かない☆
+            //TOH参考
             public static Sprite LoadSprite(string path, float pixelsPerUnit = 1f)
             {
                 Sprite sprite = null;
@@ -120,7 +103,39 @@ namespace ContinuetoEolve
             var client = AmongUsClient.Instance.allClients.ToArray().Where(cd => cd.Character.PlayerId == player.PlayerId).FirstOrDefault();
             return client;
         }
+        public static void RpcSetCustomRole(this PlayerControl player, CustomRoles role)
+        {
+            Main.PlayerRole[player.PlayerId] = role;
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.SetCustomRole, SendOption.Reliable);
+            writer.Write(player.PlayerId);
+            writer.WritePacked((int)role);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
 
+        public enum CustomRPC
+        {
+            VersionCheck,
+            SetCustomRole,
+        }
+
+    }
+
+    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+    class HandleRpc
+    {
+        public static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] byte callId, [HarmonyArgument(1)] MessageReader reader)
+        {
+            RPC.CustomRPC rpcType = (RPC.CustomRPC)callId;
+            switch (rpcType)
+            {
+                case RPC.CustomRPC.SetCustomRole:
+                    CustomRoles role = (CustomRoles)reader.ReadPackedInt32();
+                    byte player = reader.ReadByte();
+                    Main.PlayerRole[player] = role;
+                    Debug.Log($"SetCustomRoleを受け取りました。 player:{player} role:{role}");
+                    break;
+            }
+        }
     }
 
 
@@ -130,22 +145,29 @@ namespace ContinuetoEolve
         public static bool Prefix(RoleManager __instance)
         {
             List<byte> AllPlayers = new();
-            List<string> ActiveRoles = new();
+            List<CustomRoles> ActiveRoles = new();
+            List<byte> Impostor = new();
             var rand = new System.Random();
+            //var numImpostors = Math.Min(PlayerControl.AllPlayerControls.Count, GameOptionsManager.Instance.CurrentGameOptions.NumImpostors);
+            Main.PlayerRole.Clear();
 
             foreach (var pc in PlayerControl.AllPlayerControls)
                 AllPlayers.Add(pc.PlayerId);
             //プレイヤーとロール
-            foreach (var ra in Main.ModRoleActive)
-                if (ra.Value)
-                    ActiveRoles.Add(ra.Key);
-
+            ActiveRoles = GetActiveRole();
+            /*for (var i = 0; i < numImpostors; i++)
+            {
+                Impostor.Add((byte)rand.Next(0, AllPlayers.Count));
+            }*/
+            if (ActiveRoles.Count == 0 || ActiveRoles == null) return true;
             for (var i = 0; i < PlayerControl.AllPlayerControls.Count; i++)
             {
+                Console.print("!!");
                 PlayerControl Player = null;
-                string Role;
+                CustomRoles Role;
                 var Playerid = AllPlayers[rand.Next(0, AllPlayers.Count)]; //この二つは一時的に使うだけ
                 var Roleid = rand.Next(0, ActiveRoles.Count); //↑
+                Debug.Log(Roleid + "," + ActiveRoles.Count);
                 Role = ActiveRoles[Roleid];
                 foreach (var pc in PlayerControl.AllPlayerControls)
                     if (pc.PlayerId == Playerid)
@@ -155,9 +177,10 @@ namespace ContinuetoEolve
                     }
                 if (Player == null) continue;
                 //pc.RpcSetRole(Role); ここは後でCustomSetRoleRPC作りますね
+                Player.RpcSetCustomRole(Role);
                 Debug.Log($"Player:{Playerid},Role:{Role}");
 
-                ActiveRoles.RemoveAt(Roleid);
+                //ActiveRoles.RemoveAt(Roleid);
                 AllPlayers.Remove(Playerid);
             }
             return true;
@@ -230,8 +253,8 @@ namespace ContinuetoEolve
         public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
         {
             if (!AmongUsClient.Instance.AmHost) return false;
-            if (Main.PlayerRole[__instance.PlayerId] == "Sheriff")
-                if (!target.Data.Role.IsImpostor)
+            if (Main.PlayerRole[__instance.PlayerId] == CustomRoles.Sheriff)
+                if (Main.PlayerRole[target.PlayerId].RoleTeam() != Team.Crewmate)
                 {
                     __instance.RpcMurderPlayer(__instance, true);
                     return false;
@@ -240,16 +263,34 @@ namespace ContinuetoEolve
 
         }
     }
-    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.MurderPlayer))]
-    class MurderPlayerPatch
+
+    [HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.BeginCrewmate))]
+    class BeginCrewmatePatch
     {
-        public static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
+        public static void Prefix(IntroCutscene __instance, ref Il2CppSystem.Collections.Generic.List<PlayerControl> teamToDisplay)
         {
-            if (!AmongUsClient.Instance.AmHost) return;
-            if (Main.PlayerRole[target.PlayerId] == "Bait")
-                __instance.ReportDeadBody(__instance.Data);
+            if (Main.PlayerRole[PlayerControl.LocalPlayer.PlayerId].RoleTeam() == Team.Neutral)
+            {
+                var soloTeam = new Il2CppSystem.Collections.Generic.List<PlayerControl>();
+                soloTeam.Add(PlayerControl.LocalPlayer);
+                teamToDisplay = soloTeam;
+            }
+        }
+        public static void Postfix(IntroCutscene __instance, ref Il2CppSystem.Collections.Generic.List<PlayerControl> teamToDisplay)
+        {
+            CustomRoles role = Main.PlayerRole[PlayerControl.LocalPlayer.PlayerId];
+            _ = ColorUtility.TryParseHtmlString(role.GetRoleColor(), out Color rc);
+            __instance.TeamTitle.text = Translator.GetColorString(role);
+            __instance.TeamTitle.color = rc;
         }
     }
-
+    [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
+    class GameStartManagerUpdate
+    {
+        public static void Prefix(GameStartManager __instance)
+        {
+            __instance.MinPlayers = 1;
+        }
+    }
 }
 
