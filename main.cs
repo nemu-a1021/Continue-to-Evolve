@@ -50,7 +50,7 @@ namespace ContinuetoEvolve
             static void Postfix(MainMenuManager __instance)
             {
                 var cte = new GameObject("Logo-CTE");
-                cte.transform.localPosition = new(0f, 0f, 0f);
+                cte.transform.localPosition = new(2f, 0.5f, 0f);
                 cte.transform.localScale *= 1.2f;
                 renderer = cte.AddComponent<SpriteRenderer>();
                 renderer.sprite = LoadSprite("continue-to-evolve.Resources.Logo.png", 300f);
